@@ -3,9 +3,14 @@ package com.example.checkers;
 import androidx.appcompat.app.AppCompatActivity;
 
 import android.app.Activity;
+import android.content.DialogInterface;
+import android.content.Intent;
 import android.content.res.Resources;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
+import android.os.CountDownTimer;
+import android.os.Handler;
+import android.os.SystemClock;
 import android.util.Log;
 import android.view.View;
 import android.widget.ImageView;
@@ -19,8 +24,10 @@ public class MainActivity extends AppCompatActivity {
 
     private Integer storedSquare = null;
     private char currentColor = 'R';
+    private char playerColor;
     private int moveTier;
     private int dir;
+    private String gameMode;
     private HashSet<String> whitePieces = new HashSet<String>();
     private HashSet<String> redPieces = new HashSet<String>();
     private HashSet<String> kings = new HashSet<String>();
@@ -134,7 +141,54 @@ public class MainActivity extends AppCompatActivity {
             squareView.setEnabled(false);
         }
 
+        // Get game mode from intent
+        Intent i = getIntent();
+        gameMode = i.getStringExtra("mode");
+
+        if (gameMode.equals("One-Player")) {
+            if (dir == 1) playerColor = 'W';
+            else playerColor = 'R';
+        }
+
         setUpNextTurn();
+
+        // Create event listeners based on game mode
+        /*
+        if (gameMode.equals("One-Player")) {
+            // Create click listener
+            View.OnClickListener btnClick = new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    playVsCPU(v);
+                }
+            };
+
+            for (String square : board) {
+                int squareId = res.getIdentifier(square, "id", getPackageName());
+                ImageView squareView = findViewById(squareId);
+                squareView.setOnClickListener(btnClick);
+            }
+
+            if (dir == 1) {
+                currentColor = 'W';
+                // do cpu stuff
+            }
+            else {  // dir == -1
+                currentColor = 'R';
+                setUpNextTurn();
+            }
+        }
+        else {  // gameMode == "Two-Player"
+            // Disable all click events
+            for (String square : board) {
+                int squareId = res.getIdentifier(square, "id", getPackageName());
+                ImageView squareView = findViewById(squareId);
+                squareView.setEnabled(false);
+            }
+
+            setUpNextTurn();
+        }
+         */
     }
 
     // ToDo
@@ -183,6 +237,18 @@ public class MainActivity extends AppCompatActivity {
     // As well as using hashsets, set these up
     // No need to check in hashsets then
 
+    /*
+    public void playVsCPU(View v) {
+        // For 1-player mode
+
+        ImageView square = (ImageView)v;
+        String squareCoords = square.getTag().toString();
+        if (redPieces.contains(squareCoords))        square.setImageResource(R.drawable.red_checker_movable);
+        else if (whitePieces.contains(squareCoords)) square.setImageResource(R.drawable.white_checker_movable);
+        else                                         square.setImageResource(R.drawable.black_square_highlighted);
+    }
+     */
+
     public void moveChecker(View v) {
         if (storedSquare == null) {
             storedSquare = v.getId();
@@ -198,6 +264,7 @@ public class MainActivity extends AppCompatActivity {
                 // Whole board then has normal coloring; can now swap images
                 unhighlightPieces();
 
+                move(fromSquare, toSquare);
                 if (moveTier == 2) {  // Jump
                     // toSquare must be valid, so execute move and end turn
                     String fromCoords = fromSquare.getTag().toString();
@@ -218,8 +285,7 @@ public class MainActivity extends AppCompatActivity {
                     int otherPieceId = res.getIdentifier(otherPieceCoords, "id", getPackageName());
                     ImageView otherPiece = findViewById(otherPieceId);
 
-                    // Jump
-                    move(fromSquare, toSquare);
+                    // Jump removes the other piece
                     remove(otherPiece);
 
                     // Check for more jumps
@@ -239,7 +305,6 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }
                 else {  // Move Diagonally
-                    move(fromSquare, toSquare);
                     currentColor = (currentColor == 'R') ? 'W' : 'R';
                     setUpNextTurn();
                     storedSquare = null;
@@ -273,8 +338,96 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        if (moveTier == 0) gameOver();
-        else highlightPieces();
+        if (moveTier == 0) {
+            gameOver();
+        }
+        else {
+            if (gameMode.equals("Two-Player")) {
+                highlightPieces();
+            }
+            else {  // One-Player
+                if (currentColor == playerColor) {
+                    highlightPieces();
+                }
+                else                             {
+                    // Pause before move
+                    Handler h = new Handler();
+                    h.postDelayed(new Runnable() {
+                        @Override
+                        public void run() {
+                            cpuMove();
+                        }
+                    }, 1000);
+                }
+            }
+        }
+    }
+
+    private void cpuMove() {
+        // Decide CPU Move /////////////////////////////////////
+        Random random = new Random();
+        int randomIndex = random.nextInt(movablePieces.size());
+        String fromCoords = movablePieces.get(randomIndex);
+
+        Resources res = getResources();
+        int fromId = res.getIdentifier(fromCoords, "id", getPackageName());
+        ImageView fromSquare = findViewById(fromId);
+
+        findMoves(fromSquare);
+
+        randomIndex = random.nextInt(destinationSquares.size());
+        String toCoords = destinationSquares.get(randomIndex);
+
+        destinationSquares = new ArrayList<String>();  // reset
+
+        int toId = res.getIdentifier(toCoords, "id", getPackageName());
+        ImageView toSquare = findViewById(toId);
+        ////////////////////////////////////////////////////////
+
+        move(fromSquare, toSquare);
+        // remove if needed
+        if (moveTier == 2) {
+            int fromX = Character.getNumericValue(fromCoords.charAt(1));
+            int fromY = Character.getNumericValue(fromCoords.charAt(3));
+            int toX = Character.getNumericValue(toCoords.charAt(1));
+            int toY = Character.getNumericValue(toCoords.charAt(3));
+
+            // Other (middle) piece info
+            int otherPieceX = (toX + fromX)/2;
+            int otherPieceY = (toY + fromY)/2;
+            String otherPieceCoords = "C" + otherPieceX + "_" + otherPieceY;
+
+            // otherPiece view retrieved
+            int otherPieceId = res.getIdentifier(otherPieceCoords, "id", getPackageName());
+            ImageView otherPiece = findViewById(otherPieceId);
+
+            remove(otherPiece);
+
+            // Jump Chain
+            if (canJump(toCoords)) {
+                movablePieces = new ArrayList<String>();
+                movablePieces.add(toCoords);
+
+                // Pause before move
+                Handler h = new Handler();
+                h.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        cpuMove();
+                    }
+                }, 1000);
+            }
+            else {
+                // End CPU Turn
+                currentColor = (currentColor == 'R') ? 'W' : 'R';
+                setUpNextTurn();
+            }
+        }
+        else {
+            // End CPU Turn
+            currentColor = (currentColor == 'R') ? 'W' : 'R';
+            setUpNextTurn();
+        }
     }
 
     private boolean canJump(String piece) {

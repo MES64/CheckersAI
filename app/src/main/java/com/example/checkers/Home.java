@@ -16,7 +16,12 @@ public class Home extends AppCompatActivity {
     }
 
     public void startGame(View v) {
+        // Get game mode
+        Button button = (Button)v;
+        String gameMode = button.getText().toString();
+
         Intent i = new Intent(this, MainActivity.class);
+        i.putExtra("mode", gameMode);
         startActivity(i);
     }
 }

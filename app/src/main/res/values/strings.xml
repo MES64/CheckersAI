@@ -1,4 +1,5 @@
 <resources>
     <string name="app_name">Checkers</string>
-    <string name="play">Play</string>
+    <string name="two_player">Two-Player</string>
+    <string name="one_player">One-Player</string>
 </resources>
