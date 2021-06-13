@@ -32,8 +32,10 @@ public class MainActivity extends AppCompatActivity {
     private HashSet<String> redPieces = new HashSet<String>();
     private HashSet<String> kings = new HashSet<String>();
     private HashSet<String> board = new HashSet<String>();
+    private HashSet<int[]> boardSquares = new HashSet<int[]>();
     private ArrayList<String> movablePieces;
     private ArrayList<String> destinationSquares = new ArrayList<String>();
+    private ArrayList<GameState> childNodes;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -133,6 +135,13 @@ public class MainActivity extends AppCompatActivity {
         board.add("C3_5");
         board.add("C5_5");
         board.add("C7_5");
+
+        // Board Squares (int[] version of board hash set)
+        for (String square : board) {
+            int x = Character.getNumericValue(square.charAt(1));
+            int y = Character.getNumericValue(square.charAt(3));
+            boardSquares.add(new int[]{x, y});
+        }
 
         // Disable all click events
         for (String square : board) {
@@ -364,27 +373,19 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void cpuMove() {
-        // Decide CPU Move /////////////////////////////////////
-        Random random = new Random();
-        int randomIndex = random.nextInt(movablePieces.size());
-        String fromCoords = movablePieces.get(randomIndex);
+        // ToDo Decide move chosen outside of the cpuMove(); use global variable
+        // For jump chain, do not want to figure out best move again; fine otherwise!
+        // Could output best move as a sequence of coords (at least 2); global
+        // Loop through this sequence to implement each pause and move
+        // Do this recursively to make sure pause works; pass in current index
+        // Stop when index is at the end
+        MovePiece moveChosen = decideCpuMove();
 
-        Resources res = getResources();
-        int fromId = res.getIdentifier(fromCoords, "id", getPackageName());
-        ImageView fromSquare = findViewById(fromId);
+        // Get info
+        String fromCoords = moveChosen.fromSquare.getTag().toString();
+        String toCoords = moveChosen.toSquare.getTag().toString();
 
-        findMoves(fromSquare);
-
-        randomIndex = random.nextInt(destinationSquares.size());
-        String toCoords = destinationSquares.get(randomIndex);
-
-        destinationSquares = new ArrayList<String>();  // reset
-
-        int toId = res.getIdentifier(toCoords, "id", getPackageName());
-        ImageView toSquare = findViewById(toId);
-        ////////////////////////////////////////////////////////
-
-        move(fromSquare, toSquare);
+        move(moveChosen.fromSquare, moveChosen.toSquare);
         // remove if needed
         if (moveTier == 2) {
             int fromX = Character.getNumericValue(fromCoords.charAt(1));
@@ -398,6 +399,7 @@ public class MainActivity extends AppCompatActivity {
             String otherPieceCoords = "C" + otherPieceX + "_" + otherPieceY;
 
             // otherPiece view retrieved
+            Resources res = getResources();
             int otherPieceId = res.getIdentifier(otherPieceCoords, "id", getPackageName());
             ImageView otherPiece = findViewById(otherPieceId);
 
@@ -427,6 +429,560 @@ public class MainActivity extends AppCompatActivity {
             // End CPU Turn
             currentColor = (currentColor == 'R') ? 'W' : 'R';
             setUpNextTurn();
+        }
+    }
+
+    private MovePiece decideCpuMove() {
+        // Random Move /////////////////////////////////////////////////////////////////////////////
+        /*
+        Random random = new Random();
+        int randomIndex = random.nextInt(movablePieces.size());
+        String fromCoords = movablePieces.get(randomIndex);
+
+        Resources res = getResources();
+        int fromId = res.getIdentifier(fromCoords, "id", getPackageName());
+        ImageView fromSquare = findViewById(fromId);
+
+        findMoves(fromSquare);
+
+        randomIndex = random.nextInt(destinationSquares.size());
+        String toCoords = destinationSquares.get(randomIndex);
+
+        destinationSquares = new ArrayList<String>();  // reset
+
+        int toId = res.getIdentifier(toCoords, "id", getPackageName());
+        ImageView toSquare = findViewById(toId);
+         */
+        ////////////////////////////////////////////////////////////////////////////////////////////
+
+        // Use recursion:
+        // - Start at current game state: red pieces, white pieces, and the current color
+        // - Find movable pieces first, as limited by whether jump is possible (a kind-of pruning!)
+        // - Iterate through each piece and for each move found, iteratively call minimax function
+        //   which stores the next game state; store game state in a node object (n) (see website)
+        // - leaf(n) - is node n a leaf?
+        // - evaluate(n) - evaluate node n based on the number of pieces, and maybe the number of
+        //                 movable pieces (maybe pieces that cannot move diagonally are worth less,
+        //                 or maybe worth even less if by an opponent's piece) -> do at leaf/depth=0
+        // - isMaxNode(n) - (optional) to check if it is a max node or min node (check current color)
+        // - Can avoid calculating game states if pruned, so maybe evaluate all child nodes somehow
+        //   and order them in terms of their evaluation
+
+        // - In this function, loop through each possible move and update v as well as current move
+        // - The current move at the end is the best move (with maximum v) and is returned
+        // - In minimax(node n, int depth, int min, int max), only the value is returned
+
+        // If jump chain, need multiple nodes for cases where there is a choice (cannot guarantee
+        // condensing the entire chain to one node, but can guarantee having every move in a node;
+        // could condense a single choice chain down to one node, and only split if a choice appears)
+
+        // Evaluate based on number of pieces:
+
+        // Basic:
+        // - +1 for every piece you have, -1 for every piece your opponent has
+        // - min = -# pieces per side
+        // - max = # pieces per side
+        // - Maybe king pieces too:
+        // - min = -2 * # pieces per side
+        // - max = +2 * # pieces per side
+
+        // Detailed:
+        // - Piece count (+1 you, -1 other)
+        // - King count (+1 you, -1 other)
+        // - Trapped kings
+        // - Who's turn it is
+        // - Runaway checkers (clear run to be kinged)
+        // - Any other minor factors?:
+        // -> Exposed checkers
+        // -> Protected checkers
+        // -> Center control
+
+        // Change how pieces on the board are stored; String -> int[] (maybe change everywhere later)
+        HashSet<int[]> currentReds = new HashSet<int[]>();
+        HashSet<int[]> currentWhites = new HashSet<int[]>();
+        HashSet<int[]> currentKings = new HashSet<int[]>();
+
+        for (String piece : redPieces) {
+            int x = Character.getNumericValue(piece.charAt(1));
+            int y = Character.getNumericValue(piece.charAt(3));
+            currentReds.add(new int[]{x, y});
+        }
+        for (String piece : whitePieces) {
+            int x = Character.getNumericValue(piece.charAt(1));
+            int y = Character.getNumericValue(piece.charAt(3));
+            currentWhites.add(new int[]{x, y});
+        }
+        for (String king : kings) {
+            int x = Character.getNumericValue(king.charAt(1));
+            int y = Character.getNumericValue(king.charAt(3));
+            currentKings.add(new int[]{x, y});
+        }
+
+        GameState currentState = new GameState(currentReds, currentWhites, currentKings, currentColor);
+
+        // Set depth
+        int depth = 5;
+
+        int piecesPerSide = 12;
+        int min = -2 * piecesPerSide;
+        int max = 2 * piecesPerSide;
+
+        Resources res = getResources();
+        int bestGameValue = min-1;  // -1 to guarantee bestMove is written from first one found
+        MovePiece bestMove = null;
+
+        // Current node will be a max node; as it is the CPU's turn
+        for (String fromCoords : movablePieces) {
+            int fromId = res.getIdentifier(fromCoords, "id", getPackageName());
+            ImageView fromSquare = findViewById(fromId);
+            findMoves(fromSquare);
+
+            int fromX = Character.getNumericValue(fromCoords.charAt(1));
+            int fromY = Character.getNumericValue(fromCoords.charAt(3));
+            int[] fromCoordsArr = new int[]{fromX, fromY};
+
+            for (String toCoords : destinationSquares) {
+                int toX = Character.getNumericValue(toCoords.charAt(1));
+                int toY = Character.getNumericValue(toCoords.charAt(3));
+                int[] toCoordsArr = new int[]{toX, toY};
+
+                // Create game tree node
+                // Create child with move found
+                GameState child = createChild(currentState, fromCoordsArr, toCoordsArr, moveTier);
+
+                childNodes = new ArrayList<GameState>();
+                if (moveTier == 2) {  // For Jump Chains
+                    childrenAfterJumpChain(child, toCoordsArr);
+                }
+                else {
+                    childNodes.add(child);
+                }
+                ArrayList<GameState> currentChildNodes = new ArrayList<GameState>(childNodes);
+
+                for (GameState finalChild : currentChildNodes) {
+                    // End turn; next node in game tree
+                    finalChild.currentColor = (finalChild.currentColor == 'R') ? 'W' : 'R';
+
+                    int gameValue = minimax(finalChild, depth-1, bestGameValue, max);
+                    if (gameValue > bestGameValue) {
+                        bestGameValue = gameValue;
+
+                        int toId = res.getIdentifier(toCoords, "id", getPackageName());
+                        ImageView toSquare = findViewById(toId);
+                        bestMove = new MovePiece(fromSquare, toSquare);
+                    }
+                }
+            }
+        }
+
+        return bestMove;
+    }
+
+    private int minimax(GameState currentState, int depth, int min, int max) {
+        MoveInfo moveInfo = getMovablePieces(currentState);
+
+        boolean isLeaf = (moveInfo.currentMoveTier == 0);
+        if (isLeaf || depth == 0) return evaluate(currentState, isLeaf);
+
+        int bestGameValue;
+        if (isMaxNode(currentState)) {
+            bestGameValue = min;
+
+            for (int[] fromCoords : moveInfo.simulatedMovablePieces) {
+                ArrayList<int[]> simulatedDestinationSquares = getMoves(currentState, fromCoords, moveInfo.currentMoveTier);
+
+                for (int[] toCoords : simulatedDestinationSquares) {
+                    GameState child = createChild(currentState, fromCoords, toCoords, moveInfo.currentMoveTier);
+
+                    childNodes = new ArrayList<GameState>();
+                    if (moveInfo.currentMoveTier == 2) {  // For Jump Chains
+                        childrenAfterJumpChain(child, toCoords);
+                    }
+                    else {
+                        childNodes.add(child);
+                    }
+                    ArrayList<GameState> currentChildNodes = new ArrayList<GameState>(childNodes);
+
+                    for (GameState finalChild : currentChildNodes) {
+                        // End turn; next node in game tree
+                        finalChild.currentColor = (finalChild.currentColor == 'R') ? 'W' : 'R';
+
+                        int gameValue = minimax(finalChild, depth-1, bestGameValue, max);
+                        if (gameValue > bestGameValue) bestGameValue = gameValue;
+                        if (bestGameValue > max) return max;
+                    }
+                }
+            }
+        }
+        else {  // is min node
+            bestGameValue = max;
+
+            for (int[] fromCoords : moveInfo.simulatedMovablePieces) {
+                ArrayList<int[]> simulatedDestinationSquares = getMoves(currentState, fromCoords, moveInfo.currentMoveTier);
+
+                for (int[] toCoords : simulatedDestinationSquares) {
+                    GameState child = createChild(currentState, fromCoords, toCoords, moveInfo.currentMoveTier);
+
+                    childNodes = new ArrayList<GameState>();
+                    if (moveInfo.currentMoveTier == 2) {  // For Jump Chains
+                        childrenAfterJumpChain(child, toCoords);
+                    }
+                    else {
+                        childNodes.add(child);
+                    }
+                    ArrayList<GameState> currentChildNodes = new ArrayList<GameState>(childNodes);
+
+                    for (GameState finalChild : currentChildNodes) {
+                        // End turn; next node in game tree
+                        finalChild.currentColor = (finalChild.currentColor == 'R') ? 'W' : 'R';
+
+                        int gameValue = minimax(finalChild, depth-1, min, bestGameValue);
+                        if (gameValue < bestGameValue) bestGameValue = gameValue;
+                        if (bestGameValue < min) return min;
+                    }
+                }
+            }
+        }
+
+        return bestGameValue;
+    }
+
+    private void childrenAfterJumpChain(GameState state, int[] fromCoords) {
+        ArrayList<int[]> jumpMoves = getMoves(state, fromCoords, 2);
+
+        if (jumpMoves.size() == 0) {
+            childNodes.add(state);
+        }
+        else {
+            for (int[] toCoords : jumpMoves) {
+                // Create child; currentMoveTier must be 2
+                GameState child = createChild(state, fromCoords, toCoords, 2);
+
+                childrenAfterJumpChain(child, toCoords);
+            }
+        }
+    }
+
+    private GameState createChild(GameState state, int[] fromCoords, int[] toCoords, int currentMoveTier) {
+        GameState child = new GameState(state);
+
+        // Move
+        if (child.currentColor == 'R') {
+            child.redPieces.remove(fromCoords);
+            child.redPieces.add(toCoords);
+        }
+        else {  // child.currentColor == 'W'
+            child.whitePieces.remove(fromCoords);
+            child.whitePieces.add(toCoords);
+        }
+
+        // Update king if needed
+        if (child.kings.contains(fromCoords)) {
+            child.kings.remove(fromCoords);
+            child.kings.add(toCoords);
+        }
+
+        // Add king if needed
+        if (!child.kings.contains(toCoords)) {
+            if (dir == 1) {
+                if ((child.currentColor == 'R') && (toCoords[1] == 1)) {
+                    child.kings.add(toCoords);
+                }
+                else if ((child.currentColor == 'W') && (toCoords[1] == 8)) {
+                    child.kings.add(toCoords);
+                }
+            }
+            else {  // dir == -1
+                if ((child.currentColor == 'R') && (toCoords[1] == 8)) {
+                    child.kings.add(toCoords);
+                }
+                else if ((child.currentColor == 'W') && (toCoords[1] == 1)) {
+                    child.kings.add(toCoords);
+                }
+            }
+        }
+
+        // Delete if needed
+        if (currentMoveTier == 2) {
+            // Find other coords
+            int otherX = (toCoords[0] + fromCoords[0])/2;
+            int otherY = (toCoords[1] + fromCoords[1])/2;
+            int[] otherCoords = new int[]{otherX, otherY};
+
+            if (child.currentColor == 'R') {
+                child.whitePieces.remove(otherCoords);
+            }
+            else {  // child.currentColor == 'W'
+                child.redPieces.remove(otherCoords);
+            }
+
+            // Remove from kings if needed
+            child.kings.remove(otherCoords);
+        }
+
+        return child;
+    }
+
+    private ArrayList<int[]> getMoves(GameState state, int[] fromCoords, int currentMoveTier) {
+        ArrayList<int[]> simulatedDestinationSquares = new ArrayList<int[]>();
+
+        if (currentMoveTier == 2) {
+            // Find all jumps
+            // try different toCoords
+            int toY = (state.currentColor == 'R') ? fromCoords[1] - 2*dir : fromCoords[1] + 2*dir;
+            int[] toSquareLeft = new int[]{fromCoords[0]-2, toY};
+            int[] toSquareRight = new int[]{fromCoords[0]+2, toY};
+
+            // other piece coords
+            int otherY = (state.currentColor == 'R') ? fromCoords[1]-dir : fromCoords[1]+dir;
+            int[] otherSquareLeft = new int[]{fromCoords[0]-1, otherY};
+            int[] otherSquareRight = new int[]{fromCoords[0]+1, otherY};
+
+            // Check that other piece is opposite to from color and to square is empty
+            // Can use hashset instead of views!
+            if ((boardSquares.contains(toSquareLeft)) && (!state.whitePieces.contains(toSquareLeft)) && (!state.redPieces.contains(toSquareLeft))) {
+                if ((state.currentColor == 'R') && (state.whitePieces.contains(otherSquareLeft))) simulatedDestinationSquares.add(toSquareLeft);
+                if ((state.currentColor == 'W') && (state.redPieces.contains(otherSquareLeft))) simulatedDestinationSquares.add(toSquareLeft);
+            }
+            if ((boardSquares.contains(toSquareRight)) && (!state.whitePieces.contains(toSquareRight)) && (!state.redPieces.contains(toSquareRight))) {
+                if ((state.currentColor == 'R') && (state.whitePieces.contains(otherSquareRight))) simulatedDestinationSquares.add(toSquareRight);
+                if ((state.currentColor == 'W') && (state.redPieces.contains(otherSquareRight))) simulatedDestinationSquares.add(toSquareRight);
+            }
+
+            // If it is a king piece, check the other way too
+            if (state.kings.contains(fromCoords)) {
+                // try different toCoords
+                int toYBack = (state.currentColor == 'R') ? fromCoords[1] + 2*dir : fromCoords[1] - 2*dir;
+                int[] toSquareLeftBack = new int[]{fromCoords[0]-2, toYBack};
+                int[] toSquareRightBack = new int[]{fromCoords[0]+2, toYBack};
+
+                // other piece coords
+                int otherYBack = (state.currentColor == 'R') ? fromCoords[1]+dir : fromCoords[1]-dir;
+                int[] otherSquareLeftBack = new int[]{fromCoords[0]-1, otherYBack};
+                int[] otherSquareRightBack = new int[]{fromCoords[0]+1, otherYBack};
+
+                // Check that other piece is opposite to "from color" and "to square" is empty
+                if ((boardSquares.contains(toSquareLeftBack)) && (!state.whitePieces.contains(toSquareLeftBack)) && (!state.redPieces.contains(toSquareLeftBack))) {
+                    if ((state.currentColor == 'R') && (state.whitePieces.contains(otherSquareLeftBack))) simulatedDestinationSquares.add(toSquareLeftBack);
+                    if ((state.currentColor == 'W') && (state.redPieces.contains(otherSquareLeftBack))) simulatedDestinationSquares.add(toSquareLeftBack);
+                }
+                if ((boardSquares.contains(toSquareRightBack)) && (!state.whitePieces.contains(toSquareRightBack)) && (!state.redPieces.contains(toSquareRightBack))) {
+                    if ((state.currentColor == 'R') && (state.whitePieces.contains(otherSquareRightBack))) simulatedDestinationSquares.add(toSquareRightBack);
+                    if ((state.currentColor == 'W') && (state.redPieces.contains(otherSquareRightBack))) simulatedDestinationSquares.add(toSquareRightBack);
+                }
+            }
+        }
+        else {  // moveTier == 1 (0 is game over)
+            // Find all diagonal moves
+            // try different toCoords
+            int toY = (state.currentColor == 'R') ? fromCoords[1]-dir : fromCoords[1]+dir;
+
+            int[] toSquareLeft = new int[]{fromCoords[0]-1, toY};
+            int[] toSquareRight = new int[]{fromCoords[0]+1, toY};
+
+            if ((boardSquares.contains(toSquareLeft)) && (!state.whitePieces.contains(toSquareLeft)) && (!state.redPieces.contains(toSquareLeft))) {
+                simulatedDestinationSquares.add(toSquareLeft);
+            }
+            if ((boardSquares.contains(toSquareRight)) && (!state.whitePieces.contains(toSquareRight)) && (!state.redPieces.contains(toSquareRight))) {
+                simulatedDestinationSquares.add(toSquareRight);
+            }
+
+            // If it is a king piece, check the other way too
+            if (state.kings.contains(fromCoords)) {
+                // try different toCoords
+                int toYBack = (state.currentColor == 'R') ? fromCoords[1]+dir : fromCoords[1]-dir;
+
+                int[] toSquareLeftBack = new int[]{fromCoords[0]-1, toYBack};
+                int[] toSquareRightBack = new int[]{fromCoords[0]+1, toYBack};
+
+                if ((boardSquares.contains(toSquareLeftBack)) && (!state.whitePieces.contains(toSquareLeftBack)) && (!state.redPieces.contains(toSquareLeftBack))) {
+                    simulatedDestinationSquares.add(toSquareLeftBack);
+                }
+                if ((boardSquares.contains(toSquareRightBack)) && (!state.whitePieces.contains(toSquareRightBack)) && (!state.redPieces.contains(toSquareRightBack))) {
+                    simulatedDestinationSquares.add(toSquareRightBack);
+                }
+            }
+        }
+
+        return simulatedDestinationSquares;
+    }
+
+    private MoveInfo getMovablePieces(GameState state) {
+        // Get the pieces that can move, while also determining if any moves are available
+        int currentMoveTier = 0;
+        ArrayList<int[]> simulatedMovablePieces = new ArrayList<int[]>();
+        HashSet<int[]> currentPieces = (state.currentColor == 'R') ? state.redPieces : state.whitePieces;
+
+        for (int[] piece : currentPieces) {
+            // Check for jumps
+            if (canPieceJump(state, piece)) {
+                if (currentMoveTier < 2) {
+                    currentMoveTier = 2;
+                    simulatedMovablePieces = new ArrayList<int[]>();
+                }
+                simulatedMovablePieces.add(piece);
+            }
+
+            // Check for diagonal moves
+            if ((currentMoveTier < 2) && (canPieceMoveDiagonally(state, piece))) {
+                if (currentMoveTier < 1) currentMoveTier = 1;
+                simulatedMovablePieces.add(piece);
+            }
+        }
+
+        return new MoveInfo(currentMoveTier, simulatedMovablePieces);
+    }
+
+    private int evaluate(GameState state, boolean isLeaf) {
+        if (isLeaf) {
+            int piecesPerSide = 12;
+            if (state.currentColor == playerColor) {  // CPU Wins
+                return 2 * piecesPerSide;  // return max
+            }
+            else {  // CPU Loses
+                return -2 * piecesPerSide;  // return min
+            }
+        }
+
+        // Pieces
+        int value = state.redPieces.size() - state.whitePieces.size();
+
+        // Kings
+        for (int[] king : state.kings) {
+            if (state.redPieces.contains(king)) value++;
+            else                                value--;
+        }
+
+        if (playerColor == 'R') value *= -1;
+
+        return value;
+    }
+
+    private boolean isMaxNode(GameState state) {
+        // Look at current color
+        if (state.currentColor == playerColor) return false;
+        return true;
+    }
+
+    private boolean canPieceJump(GameState state, int[] piece) {
+        // try different toCoords
+        int toY = (state.currentColor == 'R') ? piece[1] - 2*dir : piece[1] + 2*dir;
+        int[] toSquareLeft = new int[]{piece[0]-2, toY};
+        int[] toSquareRight = new int[]{piece[0]+2, toY};
+
+        // other piece coords
+        int otherY = (state.currentColor == 'R') ? piece[1]-dir : piece[1]+dir;
+        int[] otherSquareLeft = new int[]{piece[0]-1, otherY};
+        int[] otherSquareRight = new int[]{piece[0]+1, otherY};
+
+        // Check that other piece is opposite to "from color" and "to square" is empty
+        // Can use hashset instead of views!
+        if ((boardSquares.contains(toSquareLeft)) && (!state.whitePieces.contains(toSquareLeft)) && (!state.redPieces.contains(toSquareLeft))) {
+            if ((state.currentColor == 'R') && (state.whitePieces.contains(otherSquareLeft))) return true;
+            if ((state.currentColor == 'W') && (state.redPieces.contains(otherSquareLeft))) return true;
+        }
+        if ((boardSquares.contains(toSquareRight)) && (!state.whitePieces.contains(toSquareRight)) && (!state.redPieces.contains(toSquareRight))) {
+            if ((state.currentColor == 'R') && (state.whitePieces.contains(otherSquareRight))) return true;
+            if ((state.currentColor == 'W') && (state.redPieces.contains(otherSquareRight))) return true;
+        }
+
+        // If it is a king piece, check the other way too
+        if (state.kings.contains(piece)) {
+            // try different toCoords
+            int toYBack = (state.currentColor == 'R') ? piece[1] + 2*dir : piece[1] - 2*dir;
+            int[] toSquareLeftBack = new int[]{piece[0]-2, toYBack};
+            int[] toSquareRightBack = new int[]{piece[0]+2, toYBack};
+
+            // other piece coords
+            int otherYBack = (state.currentColor == 'R') ? piece[1]+dir : piece[1]-dir;
+            int[] otherSquareLeftBack = new int[]{piece[0]-1, otherYBack};
+            int[] otherSquareRightBack = new int[]{piece[0]+1, otherYBack};
+
+            // Check that other piece is opposite to "from color" and "to square" is empty
+            if ((boardSquares.contains(toSquareLeftBack)) && (!state.whitePieces.contains(toSquareLeftBack)) && (!state.redPieces.contains(toSquareLeftBack))) {
+                if ((state.currentColor == 'R') && (state.whitePieces.contains(otherSquareLeftBack))) return true;
+                if ((state.currentColor == 'W') && (state.redPieces.contains(otherSquareLeftBack))) return true;
+            }
+            if ((boardSquares.contains(toSquareRightBack)) && (!state.whitePieces.contains(toSquareRightBack)) && (!state.redPieces.contains(toSquareRightBack))) {
+                if ((state.currentColor == 'R') && (state.whitePieces.contains(otherSquareRightBack))) return true;
+                if ((state.currentColor == 'W') && (state.redPieces.contains(otherSquareRightBack))) return true;
+            }
+        }
+
+        return false;
+    }
+
+    private boolean canPieceMoveDiagonally(GameState state, int[] piece) {
+        // try different toCoords
+        int toY = (state.currentColor == 'R') ? piece[1]-dir : piece[1]+dir;
+
+        int[] toSquareLeft = new int[]{piece[0]-1, toY};
+        int[] toSquareRight = new int[]{piece[0]+1, toY};
+
+        if ((boardSquares.contains(toSquareLeft)) && (!state.whitePieces.contains(toSquareLeft)) && (!state.redPieces.contains(toSquareLeft))) {
+            return true;
+        }
+        if ((boardSquares.contains(toSquareRight)) && (!state.whitePieces.contains(toSquareRight)) && (!state.redPieces.contains(toSquareRight))) {
+            return true;
+        }
+
+        // If it is a king piece, check the other way too
+        if (state.kings.contains(piece)) {
+            // try different toCoords
+            int toYBack = (state.currentColor == 'R') ? piece[1]+dir : piece[1]-dir;
+
+            int[] toSquareLeftBack = new int[]{piece[0]-1, toYBack};
+            int[] toSquareRightBack = new int[]{piece[0]+1, toYBack};
+
+            if ((boardSquares.contains(toSquareLeftBack)) && (!state.whitePieces.contains(toSquareLeftBack)) && (!state.redPieces.contains(toSquareLeftBack))) {
+                return true;
+            }
+            if ((boardSquares.contains(toSquareRightBack)) && (!state.whitePieces.contains(toSquareRightBack)) && (!state.redPieces.contains(toSquareRightBack))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static class GameState {
+        public HashSet<int[]> redPieces;
+        public HashSet<int[]> whitePieces;
+        public HashSet<int[]> kings;
+        public char currentColor;
+
+        public GameState(HashSet<int[]> redPieces, HashSet<int[]> whitePieces, HashSet<int[]> kings, char currentColor) {
+            this.redPieces = redPieces;
+            this.whitePieces = whitePieces;
+            this.kings = kings;
+            this.currentColor = currentColor;
+        }
+
+        public GameState(GameState originalState) {
+            this.redPieces = new HashSet<int[]>(originalState.redPieces);
+            this.whitePieces = new HashSet<int[]>(originalState.whitePieces);
+            this.kings = new HashSet<int[]>(originalState.kings);
+            this.currentColor = originalState.currentColor;
+        }
+    }
+
+    private class MoveInfo {
+        public int currentMoveTier;
+        public ArrayList<int[]> simulatedMovablePieces;
+
+        public MoveInfo(int currentMoveTier, ArrayList<int[]> simulatedMovablePieces) {
+            this.currentMoveTier = currentMoveTier;
+            this.simulatedMovablePieces = simulatedMovablePieces;
+        }
+    }
+
+    private class MovePiece {
+        public ImageView fromSquare;
+        public ImageView toSquare;
+
+        public MovePiece(ImageView fromSquare, ImageView toSquare) {
+            this.fromSquare = fromSquare;
+            this.toSquare = toSquare;
         }
     }
 
