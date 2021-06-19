@@ -1,32 +1,33 @@
-package com.example.checkers;
-
-import androidx.appcompat.app.AppCompatActivity;
-
-import android.app.Activity;
-import android.content.DialogInterface;
-import android.content.Intent;
-import android.content.res.Resources;
-import android.graphics.drawable.Drawable;
-import android.os.Bundle;
-import android.os.CountDownTimer;
-import android.os.Handler;
-import android.os.SystemClock;
-import android.util.Log;
-import android.view.View;
-import android.widget.ImageView;
-import android.widget.Toast;
-
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.Random;
-
 // ToDo Clean up code; a lot of repeated code
 // ToDo Make the cpu not have to recalculate the game tree for each jump in a jump chain
 // ToDo UI; including board adjustment to screen size
 // ToDo Difficulty setting for cpu; could simply adjust the search depth of game tree (about 5 seems fine for hard)
 // ToDo Select which child nodes to look at first, maybe ordering by the evaluation function (should increase pruning)
-// ToDo Make a working and better game over message
 // ToDo Improve evaluation function with who's turn, trapped kings, clear run to be kinged, etc. (see comments below)
+// ToDo Properly check that the minimax with alpha-beta pruning works by comparing a shallow depth (=2) with a manual example
+
+package com.example.checkers;
+
+import androidx.annotation.RequiresApi;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.constraintlayout.widget.ConstraintLayout;
+
+import android.content.Intent;
+import android.content.res.Resources;
+import android.graphics.Color;
+import android.graphics.drawable.Drawable;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Handler;
+import android.util.Log;
+import android.view.View;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Random;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -1402,11 +1403,45 @@ public class MainActivity extends AppCompatActivity {
         if (kings.contains(otherCoords)) kings.remove(otherCoords);
     }
 
+    @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR1)
     private void gameOver() {
         Log.d("Game Over", "Game Over");
         // Make text visible that says "Game Over: <!Current Color> Wins!"
+        //String winningColor = (currentColor == 'R') ? "White" : "Red";
+        //String msg = "Game Over: " + winningColor + " Wins!";
+        //Toast.makeText(this.getBaseContext(), msg, Toast.LENGTH_LONG).show();
+
+        LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.MATCH_PARENT);
+
+        // Game Over Message
+        TextView gameOverMsg = new TextView(getBaseContext());
+
+        gameOverMsg.setLayoutParams(layoutParams);
+
+        gameOverMsg.setText("Game Over");
+        gameOverMsg.setTextColor(Color.parseColor("#673AB7"));
+        gameOverMsg.setTextSize(30);
+        gameOverMsg.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
+
+        ConstraintLayout layoutUp = findViewById(R.id.gameOver);
+        layoutUp.addView(gameOverMsg);
+
+        // Announce Winner Message
         String winningColor = (currentColor == 'R') ? "White" : "Red";
-        String msg = "Game Over: " + winningColor + " Wins!";
-        Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
+        String msg = winningColor + " Wins!";
+
+        TextView winnerMsg = new TextView(getBaseContext());
+
+        winnerMsg.setLayoutParams(layoutParams);
+
+        winnerMsg.setText(msg);
+        winnerMsg.setTextColor(Color.parseColor("#673AB7"));
+        winnerMsg.setTextSize(30);
+        winnerMsg.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
+
+        ConstraintLayout layoutDown = findViewById(R.id.winner);
+        layoutDown.addView(winnerMsg);
     }
 }
