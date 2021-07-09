@@ -3,6 +3,8 @@ Checkers with AI; Android (Java)
 
 [Video Demo](https://www.youtube.com/watch?v=XITIdYNwBzk&t=1s)
 
+![Checkers](https://user-images.githubusercontent.com/15747137/125115178-e094a200-e0e2-11eb-853b-bca51ca79f37.png)
+
 Implemented an app to play the game Checkers, where the player’s available moves are highlighted and all the pieces can only move within the constraints of the rules. 
 
 Tap a movable piece (highlighted on-screen) and tap an (also highlighted) destination square to complete the move. Includes 2-player and 1-player modes. 
