@@ -1,7 +1,7 @@
 # CheckersAI
 Checkers with AI; Android (Java)
 
-[Video Demo](https://www.youtube.com/watch?v=XITIdYNwBzk&t=1s)
+[Video Demo (click here)](https://www.youtube.com/watch?v=XITIdYNwBzk&t=1s)
 
 ![Checkers](https://user-images.githubusercontent.com/15747137/125115178-e094a200-e0e2-11eb-853b-bca51ca79f37.png)
 
